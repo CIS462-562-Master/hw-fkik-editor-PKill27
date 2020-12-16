@@ -29,32 +29,47 @@ ATransform& ATransform::operator = (const ATransform& orig)
 ATransform ATransform::Inverse() const
 {
 	// TODO: compute the inverse of a transform given the current rotation and translation components
-	return ATransform();
+	const mat3& rot = m_rotation.Transpose();
+	const vec3& trans = vec3(-m_translation[0], -m_translation[1], -m_translation[2]);
+	return ATransform(rot, trans);
 }
 
 
 vec3 ATransform::RotTrans(const vec3& vecToTransform) const
 {
 	// TODO: Transform the input vector based on this transform's rotation and translation components
-	return vec3();
+	return Translate(Rotate(vecToTransform));
 }
 
 vec3 ATransform::Rotate(const vec3& vecToTransform) const
 {
 	// TODO: Transform the input direction based on this transform's rotation component
-	return vec3();
+	return m_rotation * vecToTransform;
 }
 
 vec3 ATransform::Translate(const vec3& vecToTransform) const
 {
 	// TODO: Transform the input vector based on this transform's translation component	
-	return vec3();
+	return m_translation + vecToTransform;
 }
 
 ATransform operator * (const ATransform& H1, const ATransform& H2)
-{
+{	
 	// TODO: implement the equivalent of multiplying  H1 and H2 transformation matrices and return the result
-	return ATransform();
+	/**vec3 place = H1.RotTrans(H2.m_translation);
+	return ATransform(H1.m_rotation, place);**/
+	ATransform place = H1;
+	ATransform place2 = H2;
+	vec3 row1 = vec3(Dot(H1.m_rotation.GetRow(0), H2.m_rotation.GetCol(0)), Dot(H1.m_rotation.GetRow(0), H2.m_rotation.GetCol(1)), Dot(H1.m_rotation.GetRow(0), H2.m_rotation.GetCol(2)));
+	vec3 row2 = vec3(Dot(H1.m_rotation.GetRow(1), H2.m_rotation.GetCol(0)), Dot(H1.m_rotation.GetRow(1), H2.m_rotation.GetCol(1)), Dot(H1.m_rotation.GetRow(1), H2.m_rotation.GetCol(2)));
+	vec3 row3 = vec3(Dot(H1.m_rotation.GetRow(2), H2.m_rotation.GetCol(0)), Dot(H1.m_rotation.GetRow(2), H2.m_rotation.GetCol(1)), Dot(H1.m_rotation.GetRow(2), H2.m_rotation.GetCol(2)));
+	mat3 newRot = mat3(row1, row2, row3);
+
+	double trans1 = Dot(H1.m_rotation.GetRow(0), H2.m_translation) + H1.m_translation[0];
+	double trans2 = Dot(H1.m_rotation.GetRow(1), H2.m_translation) + H1.m_translation[1];
+	double trans3 = Dot(H1.m_rotation.GetRow(2), H2.m_translation) + H1.m_translation[2];
+	const vec3& newTrans = vec3(trans1, trans2, trans3);
+	return ATransform(newRot, newTrans);
 }
 
 vec3 operator * (const ATransform& A, const vec3& v)

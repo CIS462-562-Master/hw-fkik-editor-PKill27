@@ -133,7 +133,20 @@ AIKchain IKController::createIKchain(int endJointID, int desiredChainSize, ASkel
 	// add the corresponding skeleton joint pointers to the AIKChain "chain" data member starting with the end joint
 	// desiredChainSize = -1 should create an IK chain of maximum length (where the last chain joint is the joint before the root joint)
 	// also add weight values to the associated AIKChain "weights" data member which can be used in a CCD IK implemention
-	return AIKchain();
+	AIKchain chain = AIKchain();
+	std::vector<AJoint*> joints;
+	joints.emplace_back(pSkeleton->getJointByID(endJointID));
+	//chain.setJoint(0, pSkeleton->getJointByID(endJointID));
+	int counter = 0;
+	AJoint* parent = pSkeleton->getJointByID(endJointID)->getParent();
+	while ((counter != desiredChainSize-1 || desiredChainSize == -1) && parent != nullptr) {
+		counter = counter + 1;
+		//chain.setJoint(counter, parent);
+		joints.insert(joints.begin(), parent);
+		parent = pSkeleton->getJointByID(parent->getID())->getParent();
+	}
+	chain.setChain(joints);
+	return chain;
 }
 
 
@@ -145,9 +158,10 @@ bool IKController::IKSolver_Limb(int endJointID, const ATarget& target)
 	// copy transforms from base skeleton
 	mIKSkeleton.copyTransforms(m_pSkeleton);
 
-	if (!mvalidLimbIKchains || createLimbIKchains())
+	if (!mvalidLimbIKchains)
 	{
-		return false;
+		mvalidLimbIKchains = createLimbIKchains();
+		if (!mvalidLimbIKchains) { return false; }
 	}
 
 	vec3 desiredRootPosition;
@@ -234,6 +248,81 @@ int IKController::computeLimbIK(ATarget target, AIKchain& IKchain, const vec3 mi
 	// TODO: Implement the analytic/geometric IK method assuming a three joint limb  
 	// The actual position of the end joint should match the target position within some episilon error 
 	// the variable "midJointAxis" contains the rotation axis for the middle joint
+	AJoint* j = IKchain.getJoint(0);
+	//double l1 = (IKchain.getJoint(0)->getGlobalTranslation() - IKchain.getJoint(1)->getGlobalTranslation()).Length();
+	//double l2 = (IKchain.getJoint(1)->getGlobalTranslation() - IKchain.getJoint(2)->getGlobalTranslation()).Length();
+	double l1 = m_length01;//IKchain.getJoint(1)->getLocalTranslation().Length();
+	double l2 = m_length12;//IKchain.getJoint(2)->getLocalTranslation().Length();
+	vec3 rd = (IKchain.getJoint(0)->getGlobalTranslation()- IKchain.getJoint(2)->getGlobalTranslation());
+	double dist = rd.Length();
+	double phi = 0;
+	double inside = (l1*l1 + l2 * l2 - (rd*rd)) / (2 * l1*l2);
+	if (inside >= 1.0) {
+		phi = M_PI;
+	}
+	else if (inside <= -1.0) {
+		phi = -M_PI;
+	}
+	else {
+		phi = acos((l1*l1 + l2 * l2 - (rd*rd)) / (2 * l1*l2));
+	}
+ 
+	double theta2 = M_PI - phi;
+	rd = rd.Normalize();
+	vec3 t = target.getGlobalTranslation() - IKchain.getJoint(0)->getGlobalTranslation();
+	t = t.Normalize();
+	double place = t*rd;
+	double alpha; 
+	if (place >= 1.0) {
+		alpha = M_PI/(rd.Length()*t.Length());
+	}
+	else if (place <= -1.0) {
+		alpha = -M_PI/(rd.Length()*t.Length());
+	}
+	else {
+		alpha = (acos(t*rd)) / (rd.Length()*t.Length());
+	}
+	double test = rd.Cross(t).Length();
+	vec3 axis;
+	if (test == 0) {
+		axis = vec3(0);
+	}
+	else {
+		axis = (rd.Cross(t)) / rd.Cross(t).Length();
+	}
+	
+	quat qa = quat(cos(alpha/2),axis[0]*sin(alpha/2),axis[1]*sin(alpha/2),axis[2]*sin(alpha/2));
+	quat q1 = quat();
+	q1.FromRotation(pIKSkeleton->getJointByID(IKchain.getJoint(0)->getID())->getLocalRotation());
+
+	mat3 rztheta2 = mat3(vec3(cos(theta2), -sin(theta2), 0), vec3(sin(theta2), cos(theta2), 0), vec3(0, 0, 1));
+	mat3 rot = (q1*qa).ToRotation();
+	pIKSkeleton->getJointByID(IKchain.getJoint(0)->getID())->setLocalRotation(rot);
+	pIKSkeleton->getJointByID(IKchain.getJoint(1)->getID())->setLocalRotation(rztheta2);
+
+	//first->setLocalRotation((q1*qa).ToRotation());
+	//second->setLocalRotation(rztheta2);
+	/**
+	double theta1 = asin((l2*sin(phi)) / dist);
+	vec3 pd = target.getGlobalTranslation() - IKchain.getJoint(0)->getGlobalTranslation();
+	pd = pd.Normalize();
+	double y = asin(pd[1] / rd);
+	double b = acos(pd[0] / (cos(y)*rd));
+	double a = 1;
+	//double a =
+	AJoint* first = pIKSkeleton->getJointByName(IKchain.getJoint(0)->getName());
+	AJoint* second = pIKSkeleton->getJointByName(IKchain.getJoint(1)->getName());
+	AJoint* third = pIKSkeleton->getJointByName(IKchain.getJoint(2)->getName());
+	mat3 rz = mat3(vec3(cos(y),-sin(y),0), vec3(sin(y),cos(y),0), vec3(0,0,1));
+	mat3 ry = mat3(vec3(cos(b),0,sin(b)), vec3(0,1,0), vec3(-sin(b),0,cos(b)));
+	mat3 rx = mat3(vec3(1,0,0),vec3(0,cos(a),-sin(a)),vec3(0,sin(a),cos(a)));
+
+	mat3 rztheta1 = mat3(vec3(cos(theta1), -sin(theta1), 0), vec3(sin(theta1), cos(theta1), 0), vec3(0, 0, 1));
+	mat3 rztheta2 = mat3(vec3(cos(theta2), -sin(theta2), 0), vec3(sin(theta2), cos(theta2), 0), vec3(0, 0, 1));
+	
+	first->setLocalRotation(ry*rz*rx*rztheta1);
+	second->setLocalRotation(rztheta2);
+	**/
 	return true;
 }
 
